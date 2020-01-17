@@ -42,13 +42,14 @@ if experiment == 'toy_example':
     regressor.fit(X_train, y_train, batch_size=1, epochs=number_of_epochs)
 
 
-number_of_event = 30
+number_of_event = 60
 batch_size=64
 data_path = '/home/charles/pconv/data/'
-dataset_name = '2019/11/01/hellobank/only-converted/'
+dataset_name = '2019/11/01/hellobank/only-converted-14-days'
 
 pickle_filename = dataset_name.replace('/','-')
 if os.path.exists(pickle_filename):
+    print('Reading pickle file...')
     dataset = pickle.load(open(pickle_filename, 'rb'))
 else:
     dataset = Dataset_Delay_Prediction(dataset_name,
