@@ -13,9 +13,9 @@ time_format = '%Y-%m-%dT%H:%M:%S.%fZ'
 class Dataset_Delay_Prediction(object):
     def __init__(self, dataset_name, data_path, number_of_events, batch_size=64):
         self.data = []
-        self.labels_file_path = data_path + 'datasets/' + dataset_name + 'labels.txt.gz'
-        self.users_file_path = data_path + 'datasets/' + dataset_name + 'users.txt.gz'
-        self.timestamps_file_path = data_path + 'datasets/' + dataset_name + 'timestamps.txt.gz'
+        self.labels_file_path = data_path + 'datasets/' + dataset_name + '/labels.txt.gz'
+        self.users_file_path = data_path + 'datasets/' + dataset_name + '/users.txt.gz'
+        self.timestamps_file_path = data_path + 'datasets/' + dataset_name + '/timestamps.txt.gz'
         self.batch_size = batch_size
         self.number_of_events = number_of_events
 
@@ -28,6 +28,8 @@ class Dataset_Delay_Prediction(object):
 
         print('Generating dataset '+ dataset_name)
 
+        print('Reading labels file...')
+
         with gzip.GzipFile(fileobj=io.BytesIO(self.labels_file), mode='rb') as fo:
             for line in fo:
                 d = json.loads(line)
@@ -39,6 +41,7 @@ class Dataset_Delay_Prediction(object):
         self.number_of_users = len(self.set_of_users)
 
         self.users_dataset = {}
+        print('Reading users file...')
         self.users_file = open(self.users_file_path, 'rb').read()
         with gzip.GzipFile(fileobj=io.BytesIO(self.users_file), mode='rb') as fo:
             for line in fo:
@@ -57,6 +60,7 @@ class Dataset_Delay_Prediction(object):
         self.timestamps_file = open(self.timestamps_file_path, 'rb').read()
         self.timestamps_str_dataset = {}
         self.timestamps_dt_dataset = {}
+        print('Reading timestamps file...')
         with gzip.GzipFile(fileobj=io.BytesIO(self.timestamps_file), mode='rb') as fo:
             for line in fo:
                 d = json.loads(line)
@@ -72,7 +76,7 @@ class Dataset_Delay_Prediction(object):
         max_gap = -1
 
         self.timestamps_diff_dataset = {}
-
+        print('Generating timestamps differences...')
         for uid in self.timestamps_str_dataset.keys():
             timestamps_diff = []
             timestamp_dt_list = self.timestamps_dt_dataset[uid].copy()
@@ -99,22 +103,23 @@ class Dataset_Delay_Prediction(object):
         for uid in self.timestamps_str_dataset.keys():
             self.log_timestamps_diff[uid] = [math.log(1 + dt / self.constant_C) for dt in
                                              self.timestamps_diff_dataset[uid]]
+        if False:
+            self.events_with_log_time_appended = {}
+            for uid in self.log_timestamps_diff.keys():
+                event_number_list = self.users_dataset[uid]
+                seq_of_log_timestamps = self.log_timestamps_diff[uid]
+                seq_appended = []
+                length_of_seq = len(event_number_list)
+                for idx in range(self.max_len):
+                    event = [0 for _ in range(self.number_of_events)]
+                    if idx < length_of_seq:
+                        event[event_number_list[idx]] = 1
+                        event.append(seq_of_log_timestamps[idx])
+                        seq_appended.append(event)
+                self.events_with_log_time_appended[uid] = {'seq': seq_appended,
+                                                           'seqlen': length_of_seq}
 
-        self.events_with_log_time_appended = {}
-        for uid in self.log_timestamps_diff.keys():
-            event_number_list = self.users_dataset[uid]
-            seq_of_log_timestamps = self.log_timestamps_diff[uid]
-            seq_appended = []
-            length_of_seq = len(event_number_list)
-            for idx in range(self.max_len):
-                event = [0 for _ in range(self.number_of_events)]
-                if idx < length_of_seq:
-                    event[event_number_list[idx]] = 1
-                    event.append(seq_of_log_timestamps[idx])
-                    seq_appended.append(event)
-            self.events_with_log_time_appended[uid] = {'seq': seq_appended,
-                                                       'seqlen': length_of_seq}
-
+        print('Generating data for TimeLSTM')
         # dataset for time LSTM (dt as the last dimension of each event)
         self.full_features = []
         self.full_seqlen = []
@@ -143,6 +148,7 @@ class Dataset_Delay_Prediction(object):
             self.full_features.append(seq_appended)
             self.full_seqlen.append(length_of_seq)
             self.full_values.append([val])
+
         for idx in range(len(self.full_values)):
             dt = self.full_values[idx][0]
             self.full_values[idx] = [math.log(1 + dt / max_val)]
