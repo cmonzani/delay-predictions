@@ -2,7 +2,7 @@ from time_lstm import T1TimeLSTM
 from dataset_delay_predictions import Dataset_Delay_Prediction
 import numpy as np
 from tensorflow.keras import Sequential
-from tensorflow.keras.layers import Dense, Dropout, Masking, Layer
+from tensorflow.keras.layers import Dense, Dropout, Masking, Layer, LSTM
 import tensorflow as tf
 
 import os
@@ -15,7 +15,7 @@ import math
 import random
 import pickle
 
-experiment = 'not_toy_example'
+experiment = 'VanillaLSTM'
 if experiment == 'toy_example':
 #Toy example:
     number_of_examples = 12
@@ -67,14 +67,15 @@ print(y_train.shape)
 lstm_units = 100
 number_of_epochs = 10
 
-padding_value = 0.123456789
-padded_inputs = tf.keras.preprocessing.sequence.pad_sequences(X_train,
-                                                              padding='post',
-                                                              value=padding_value,
-                                                              dtype='float32')
 
-print(padded_inputs.shape)
-if True:
+if experiment=='T1TimeLSTM':
+    padding_value = 0.123456789
+    padded_inputs = tf.keras.preprocessing.sequence.pad_sequences(X_train,
+                                                                  padding='post',
+                                                                  value=padding_value,
+                                                                  dtype='float32')
+
+    print(padded_inputs.shape)
     regressor = Sequential()
     regressor.add(Masking(mask_value=padding_value))
     regressor.add(T1TimeLSTM(units=lstm_units))
@@ -83,6 +84,41 @@ if True:
     regressor.compile(optimizer='adam', loss='mean_squared_error')
     history = regressor.fit(padded_inputs, y_train, batch_size=1, epochs=number_of_epochs, verbose=2)
     X_test = np.array([padded_inputs[0,:,:]])
+    print(X_test.shape)
+    a = regressor.predict(X_test)
+    print(a)
+    print(history.history['loss'])
+
+if experiment == 'VanillaLSTM':
+    only_time = False
+    if only_time:
+        X_train_bis = []
+        number_of_event = len(X_train[0][0])
+        for idx in range(len(X_train)):
+            seq = X_train[idx]
+            ts_list = [[a[-1]] for a in seq]
+            X_train_bis.append(ts_list)
+
+        padding_value = 0.123456789
+        padded_inputs = tf.keras.preprocessing.sequence.pad_sequences(X_train_bis,
+                                                                      padding='post',
+                                                                      value=padding_value,
+                                                                      dtype='float32')
+    else:
+        padding_value = 0.123456789
+        padded_inputs = tf.keras.preprocessing.sequence.pad_sequences(X_train,
+                                                                      padding='post',
+                                                                      value=padding_value,
+                                                                      dtype='float32')
+    print(padded_inputs.shape)
+    regressor = Sequential()
+    regressor.add(Masking(mask_value=padding_value))
+    regressor.add(LSTM(units=lstm_units))
+    regressor.add(Dense(units=y_train.shape[1], activation='sigmoid'))
+
+    regressor.compile(optimizer='adam', loss='mean_squared_error')
+    history = regressor.fit(padded_inputs, y_train, batch_size=50, epochs=number_of_epochs, verbose=2)
+    X_test = np.array([padded_inputs[0, :, :]])
     print(X_test.shape)
     a = regressor.predict(X_test)
     print(a)
