@@ -1,4 +1,4 @@
-from time_lstm import T1TimeLSTM
+from time_lstm import T1TimeLSTM, T2TimeLSTM
 from dataset_delay_predictions import Dataset_Delay_Prediction
 import numpy as np
 from tensorflow.keras import Sequential
@@ -15,7 +15,7 @@ import math
 import random
 import pickle
 
-experiment = 'VanillaLSTM'
+experiment = 'T2TimeLSTM'
 if experiment == 'toy_example':
 #Toy example:
     number_of_examples = 12
@@ -65,7 +65,7 @@ print(y_train.shape)
 
 
 lstm_units = 100
-number_of_epochs = 10
+number_of_epochs = 5
 
 
 if experiment=='T1TimeLSTM':
@@ -84,6 +84,28 @@ if experiment=='T1TimeLSTM':
     regressor.compile(optimizer='adam', loss='mean_squared_error')
     history = regressor.fit(padded_inputs, y_train, batch_size=1, epochs=number_of_epochs, verbose=2)
     X_test = np.array([padded_inputs[0,:,:]])
+    print(X_test.shape)
+    a = regressor.predict(X_test)
+    print(a)
+    print(history.history['loss'])
+
+
+if experiment == 'T2TimeLSTM':
+    padding_value = 0.123456789
+    padded_inputs = tf.keras.preprocessing.sequence.pad_sequences(X_train,
+                                                                  padding='post',
+                                                                  value=padding_value,
+                                                                  dtype='float32')
+
+    print(padded_inputs.shape)
+    regressor = Sequential()
+    regressor.add(Masking(mask_value=padding_value))
+    regressor.add(T2TimeLSTM(units=lstm_units))
+    regressor.add(Dense(units=y_train.shape[1], activation='sigmoid'))
+
+    regressor.compile(optimizer='adam', loss='mean_squared_error')
+    history = regressor.fit(padded_inputs, y_train, batch_size=1, epochs=number_of_epochs, verbose=2)
+    X_test = np.array([padded_inputs[0, :, :]])
     print(X_test.shape)
     a = regressor.predict(X_test)
     print(a)
