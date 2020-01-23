@@ -123,9 +123,9 @@ class TimeDepMaskingCell(Layer):
         else:
             self.bias_i = None
             self.bias_f = None
-            self.bias_t = None
             self.bias_c = None
             self.bias_o = None
+            self.bias_t = None
 
         self.built = True
     
@@ -159,7 +159,7 @@ class TimeDepMaskingCell(Layer):
         dt = inputs[:, -1]
         c_d = tf.math.log(dt)
         c_d = c_d * self.kernel[-1, self.units * 4:self.units * 5]
-        c_d += self.bias[self.units * 4:]
+        c_d = tf.add(c_d, self.bias[self.units * 4:self.units * 5])
         m_d = self.time_mask_activation(c_d)
         x_t = tf.multiply(m_d, x_t)
 
@@ -173,7 +173,6 @@ class TimeDepMaskingCell(Layer):
         if self.use_bias:
             z = K.bias_add(z, self.bias[:self.units * 4])
 
-        dt_aux = dt * self.recurrent_kernel[-1, self.units * 4:]
 
         z0 = z[:, :self.units]
         z1 = z[:, self.units: 2 * self.units]
@@ -218,6 +217,7 @@ class TimeDepMaskingCell(Layer):
                   'implementation': self.implementation}
         base_config = super(TimeDepMaskingCell, self).get_config()
         return dict(list(base_config.items()) + list(config.items()))
+
 
 class TimeDepMasking(RNN):
 
