@@ -29,7 +29,7 @@ class TimeDepMaskingCell(Layer):
                  implementation=2,
                  **kwargs
                  ):
-        super(TimeDepMasking, self).__init__(**kwargs)
+        super(TimeDepMaskingCell, self).__init__(**kwargs)
         self.units = units
         self.activation = activations.get(activation)
         self.recurrent_activation = activations.get(recurrent_activation)
@@ -58,8 +58,9 @@ class TimeDepMaskingCell(Layer):
         self._recurrent_dropout_mask = None
 
     def build(self, input_shape):
+
         input_dim = input_shape[-1]
-        assert self.units >= input_dim
+        assert self.units >= input_dim - 1
 
         if type(self.recurrent_initializer).__name__ == 'Identity':
             def recurrent_identity(shape, gain=1., dtype=None):
@@ -128,6 +129,7 @@ class TimeDepMaskingCell(Layer):
 
         self.built = True
     
+
     def call(self, inputs, states, training=None):
         if 0 < self.dropout < 1 and self._dropout_mask is None:
             self._dropout_mask = _generate_dropout_mask(
@@ -155,36 +157,34 @@ class TimeDepMaskingCell(Layer):
 
         x_t = inputs[:, :-1]
         dt = inputs[:, -1]
-
-        c_d = log(dt)
-        c_d = dt * self.kernel[-1, self.units * 4:self.units * 5]
-
+        c_d = tf.math.log(dt)
+        c_d = c_d * self.kernel[-1, self.units * 4:self.units * 5]
+        c_d += self.bias[self.units * 4:]
         m_d = self.time_mask_activation(c_d)
         x_t = tf.multiply(m_d, x_t)
 
 
         if 0. < self.dropout < 1.:
             x_t *= dp_mask[0]
-        z = K.dot(x_t, self.kernel[:-1, :self.units * 5])
+        z = K.dot(x_t, self.kernel[:-1, :self.units * 4])
         if 0. < self.recurrent_dropout < 1.:
             h_tm1 *= rec_dp_mask[0]
-        z += K.dot(h_tm1, self.recurrent_kernel[:, :self.units * 5])
+        z += K.dot(h_tm1, self.recurrent_kernel[:, :self.units * 4])
         if self.use_bias:
-            z = K.bias_add(z, self.bias[:self.units * 5])
+            z = K.bias_add(z, self.bias[:self.units * 4])
 
-        dt_aux = dt * self.recurrent_kernel[-1, self.units * 5:]
+        dt_aux = dt * self.recurrent_kernel[-1, self.units * 4:]
 
         z0 = z[:, :self.units]
         z1 = z[:, self.units: 2 * self.units]
         z2 = z[:, 2 * self.units: 3 * self.units]
         z3 = z[:, 3 * self.units: 4 * self.units]
-        z4 = z[:, 4 * self.units: 5 * self.units]
+
 
         i = self.recurrent_activation(z0)
         f = self.recurrent_activation(z1)
-        t = self.time_activation(z2 + dt_aux)
-        c = f * c_tm1 + i * t * self.activation(z3)
-        o = self.recurrent_activation(z4)
+        c = f * c_tm1 + i * self.activation(z2)
+        o = self.recurrent_activation(z3)
         h = o * self.activation(c)
 
         if 0 < self.dropout + self.recurrent_dropout:
