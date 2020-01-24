@@ -483,7 +483,7 @@ class DatasetDelayPredictionStackOverflow(object):
 
         assert len(self.timestamps_list) == len(self.events_list)
 
-        self.number_of_users = len(self.timestamsps_list)
+        self.number_of_users = len(self.timestamps_list)
 
         self.timestamps_diffs_list=[]
         print('Generating timestamps differences...')
