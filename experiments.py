@@ -5,9 +5,10 @@ import numpy as np
 from tensorflow.keras import Sequential
 from tensorflow.keras.layers import Dense, Dropout, Masking, Layer, LSTM
 import tensorflow as tf
-
 import os
 import pickle
+from matplotlib import pyplot as plt
+
 
 methods_list = ['VanillaLSTMUni',
                 'VanillaLSTMMulti',
@@ -17,33 +18,46 @@ methods_list = ['VanillaLSTMUni',
                 #'PhasedLSTM',
                 'Naive']
 
+
 dataset_names = [
     '2019-10_11_12-dataset_delay_prediction',
     'stack-overflow-dataset'
 ]
 
-dataset_name = dataset_names[1]
+
+
+
+dataset_name = dataset_names[1] #experience on Stack Overflow
+
 pickle_filename = dataset_name.replace('/', '-')
 if os.path.exists(pickle_filename):
     print('Reading pickle file...')
     dataset = pickle.load(open(pickle_filename, 'rb'))
 
 
-X_train = dataset.full_features_dt[dataset.training_set_length:]
-seqlen = dataset.full_seqlen[dataset.training_set_length:]
-y_train = np.array(dataset.full_values[dataset.training_set_length:])
+X_train = dataset.full_features_dt[:dataset.training_set_length]
+seqlen = dataset.full_seqlen[:dataset.training_set_length]
+y_train = np.array(dataset.full_values[:dataset.training_set_length])
 print(y_train.shape)
 
+X_test = dataset.full_features_dt[dataset.training_set_length:]
+seqlen_test = dataset.full_seqlen[dataset.training_set_length:]
+y_test = np.array(dataset.full_values[dataset.training_set_length:])
+
+test_set_length = len(y_test)
+
 lstm_units = 50
-number_of_epochs = 5
+number_of_epochs = 50
 
+history_dict = {}
+MSE = {}
+
+number_of_events = dataset.number_of_events
 method = methods_list[0]
-
 if method == 'VanillaLSTMUni':
     # We only consider time here, not the value of the event
-    number_of_event = dataset.number_of_event
+
     X_train_bis = []
-    number_of_event = len(X_train[0][0])
     for idx in range(len(X_train)):
         seq = X_train[idx]
         ts_list = [[a[-1]] for a in seq]
@@ -55,21 +69,19 @@ if method == 'VanillaLSTMUni':
                                                                   value=padding_value,
                                                                   dtype='float32')
 
-    print(padded_inputs.shape)
-    lstm_units = 50
-    regressor = Sequential()
-    regressor.add(Masking(mask_value=padding_value))
-    regressor.add(LSTM(units=lstm_units))
-    regressor.add(Dense(units=y_train.shape[1], activation='sigmoid'))
-    number_of_epochs = 5
-    regressor.compile(optimizer='adam', loss='mean_squared_error')
-    history = regressor.fit(padded_inputs, y_train, batch_size=50, epochs=number_of_epochs, verbose=2)
-    X_test = dataset.full_features_dt[:dataset.training_set_length]
-    seqlen_test = dataset.full_seqlen[:dataset.training_set_length]
-    y_test = np.array(dataset.full_values[:dataset.training_set_length])
+    print('method: ', method)
+    print('input shape :', str(padded_inputs.shape))
+
+    regressor_LSTMUni = Sequential()
+    regressor_LSTMUni.add(Masking(mask_value=padding_value))
+    regressor_LSTMUni.add(LSTM(units=lstm_units))
+    regressor_LSTMUni.add(Dense(units=y_train.shape[1], activation='sigmoid'))
+    regressor_LSTMUni.compile(optimizer='adam', loss='mean_squared_error')
+    history_dict[method] = regressor_LSTMUni.fit(padded_inputs, y_train, batch_size=50, epochs=number_of_epochs, verbose=2)
+    print('Training done for method: ', method)
+
     X_test_bis = []
-    number_of_event = len(X_train[0][0])
-    for idx in range(dataset.training_set_length):
+    for idx in range(test_set_length):
         seq = X_test[idx]
         ts_list = [[a[-1]] for a in seq]
         X_test_bis.append(ts_list)
@@ -78,223 +90,115 @@ if method == 'VanillaLSTMUni':
                                                                   padding='post',
                                                                   value=padding_value,
                                                                   dtype='float32')
-    pred = regressor.predict(padded_inputs)
-
-    mean_sum_of_squares = sum(
-        [(y_test[i] - pred[i]) ** 2 for i in range(dataset.training_set_length)]) / dataset.training_set_length
-    print('method : ', method)
-    print('MSE : ', mean_sum_of_squares)
-
+    pred = regressor_LSTMUni.predict(padded_inputs)
+    mean_sum_of_squares = sum([(y_test[i] - pred[i]) ** 2 for i in range(test_set_length)]) / test_set_length
+    MSE[method] = mean_sum_of_squares
 
 if method == 'VanillaLSTMMulti':
-    # We only consider time here, not the value of the event
-    number_of_event = dataset.number_of_event
-
-
     padding_value = 0.123456789
     padded_inputs = tf.keras.preprocessing.sequence.pad_sequences(X_train,
                                                                   padding='post',
                                                                   value=padding_value,
                                                                   dtype='float32')
 
-    print(padded_inputs.shape)
-    lstm_units = 50
-    regressor = Sequential()
-    regressor.add(Masking(mask_value=padding_value))
-    regressor.add(LSTM(units=lstm_units))
-    regressor.add(Dense(units=y_train.shape[1], activation='sigmoid'))
-    number_of_epochs = 5
-    regressor.compile(optimizer='adam', loss='mean_squared_error')
-    history = regressor.fit(padded_inputs, y_train, batch_size=50, epochs=number_of_epochs, verbose=2)
+    print('method: ', method)
+    print('input shape :', str(padded_inputs.shape))
 
-    X_test = dataset.full_features_dt[:dataset.training_set_length]
-    seqlen_test = dataset.full_seqlen[:dataset.training_set_length]
-    y_test = np.array(dataset.full_values[:dataset.training_set_length])
-    X_test_bis = []
-    number_of_event = len(X_train[0][0])
-    for idx in range(dataset.training_set_length):
-        seq = X_test[idx]
-        ts_list = [[a[-1]] for a in seq]
-        X_test_bis.append(ts_list)
+    regressor_LSTMMulti = Sequential()
+    regressor_LSTMMulti.add(Masking(mask_value=padding_value))
+    regressor_LSTMMulti.add(LSTM(units=lstm_units))
+    regressor_LSTMMulti.add(Dense(units=y_train.shape[1], activation='sigmoid'))
+    regressor_LSTMMulti.compile(optimizer='adam', loss='mean_squared_error')
+    history_dict[method] = regressor_LSTMMulti.fit(padded_inputs, y_train, batch_size=50, epochs=number_of_epochs,
+                                                 verbose=2)
+    print('Training done for method: ', method)
 
 
-if False:
-    experiment = 'toy_example'
-    if experiment == 'toy_example':
-    #Toy example:
-        number_of_examples = 12
-        example_input_1 = [[[1.0, 0.0, x*1.0] for x in range(10)] for _ in range(number_of_examples)]
-        example_input_2 = [[[0.0, 1.0, 2*x*1.0] for x in range(9,-1,-1)] for _ in range(number_of_examples)]
-        example_input = example_input_1 + example_input_2
+    padded_inputs = tf.keras.preprocessing.sequence.pad_sequences(X_test,
+                                                                  padding='post',
+                                                                  value=padding_value,
+                                                                  dtype='float32')
+    pred = regressor_LSTMMulti.predict(padded_inputs)
+    mean_sum_of_squares = sum([(y_test[i] - pred[i]) ** 2 for i in range(test_set_length)]) / test_set_length
+    MSE[method] = mean_sum_of_squares
 
-        example_output = [[1.0,0.0] for i in range(number_of_examples)] + [[0.0, 1.0] for i in range(number_of_examples)]
+if method == 'T1TimeLSTM':
+    padding_value = 0.123456789
+    padded_inputs = tf.keras.preprocessing.sequence.pad_sequences(X_train,
+                                                                  padding='post',
+                                                                  value=padding_value,
+                                                                  dtype='float32')
 
-        X_train = np.array(example_input)
-        y_train = np.array(example_output)
+    print('method: ', method)
+    print('input shape :', str(padded_inputs.shape))
 
-        print(X_train.shape)
-        print(y_train.shape)
+    regressor_T1TimeLSTM = Sequential()
+    regressor_T1TimeLSTM.add(Masking(mask_value=padding_value))
+    regressor_T1TimeLSTM.add(LSTM(units=lstm_units))
+    regressor_T1TimeLSTM.add(Dense(units=y_train.shape[1], activation='sigmoid'))
+    regressor_T1TimeLSTM.compile(optimizer='adam', loss='mean_squared_error')
+    history_dict[method] = regressor_T1TimeLSTM.fit(padded_inputs, y_train, batch_size=1, epochs=number_of_epochs,
+                                                   verbose=2)
+    print('Training done for method: ', method)
 
-        lstm_units = 2
-        number_of_epochs = 5
+    padded_inputs = tf.keras.preprocessing.sequence.pad_sequences(X_test,
+                                                                  padding='post',
+                                                                  value=padding_value,
+                                                                  dtype='float32')
+    pred = regressor_T1TimeLSTM.predict(padded_inputs)
+    mean_sum_of_squares = sum([(y_test[i] - pred[i]) ** 2 for i in range(test_set_length)]) / test_set_length
+    MSE[method] = mean_sum_of_squares
 
-        regressor = Sequential()
-        regressor.add(TimeDepMasking(units=lstm_units))
-        regressor.add(Dense(units=y_train.shape[1], activation='softmax'))
+if method == 'T2TimeLSTM':
+    padding_value = 0.123456789
+    padded_inputs = tf.keras.preprocessing.sequence.pad_sequences(X_train,
+                                                                  padding='post',
+                                                                  value=padding_value,
+                                                                  dtype='float32')
 
-        regressor.compile(optimizer='adam', loss='mean_squared_error')
-        regressor.fit(X_train, y_train, batch_size=1, epochs=number_of_epochs)
+    print('method: ', method)
+    print('input shape :', str(padded_inputs.shape))
 
+    regressor_T2TimeLSTM = Sequential()
+    regressor_T2TimeLSTM.add(Masking(mask_value=padding_value))
+    regressor_T2TimeLSTM.add(LSTM(units=lstm_units))
+    regressor_T2TimeLSTM.add(Dense(units=y_train.shape[1], activation='sigmoid'))
+    regressor_T2TimeLSTM.compile(optimizer='adam', loss='mean_squared_error')
+    history_dict[method] = regressor_T2TimeLSTM.fit(padded_inputs, y_train, batch_size=1, epochs=number_of_epochs,
+                                                   verbose=2)
+    print('Training done for method: ', method)
 
-    number_of_event = 60
-    batch_size=64
-    data_path = '/home/charles/pconv/data/'
-    dataset_name = '2019/11/01/hellobank/only-converted-14-days'
+    padded_inputs = tf.keras.preprocessing.sequence.pad_sequences(X_test,
+                                                                  padding='post',
+                                                                  value=padding_value,
+                                                                  dtype='float32')
+    pred = regressor_T2TimeLSTM.predict(padded_inputs)
+    mean_sum_of_squares = sum([(y_test[i] - pred[i]) ** 2 for i in range(test_set_length)]) / test_set_length
+    MSE[method] = mean_sum_of_squares
 
-    pickle_filename = dataset_name.replace('/','-')
-    if os.path.exists(pickle_filename):
-        print('Reading pickle file...')
-        dataset = pickle.load(open(pickle_filename, 'rb'))
-    else:
-        dataset = DatasetDelayPrediction(dataset_name,
-                                         data_path,
-                                         number_of_event,
-                                         batch_size)
-        pickle.dump(dataset, open(pickle_filename, 'wb'))
+if method == 'TimeDepJointEmbedding':
+    padding_value = 0.123456789
+    padded_inputs = tf.keras.preprocessing.sequence.pad_sequences(X_train,
+                                                                  padding='post',
+                                                                  value=padding_value,
+                                                                  dtype='float32')
 
-    X_train = dataset.full_features
-    seqlen = dataset.full_seqlen
-    y_train = np.array(dataset.full_values)
-    print(y_train.shape)
+    print('method: ', method)
+    print('input shape :', str(padded_inputs.shape))
 
+    regressor_TimeDep = Sequential()
+    regressor_TimeDep.add(Masking(mask_value=padding_value))
+    regressor_TimeDep.add(LSTM(units=number_of_events))
+    regressor_TimeDep.add(Dense(units=y_train.shape[1], activation='sigmoid'))
+    regressor_TimeDep.compile(optimizer='adam', loss='mean_squared_error')
+    history_dict[method] = regressor_TimeDep.fit(padded_inputs, y_train, batch_size=1, epochs=number_of_epochs,
+                                                    verbose=2)
+    print('Training done for method: ', method)
 
-    lstm_units = 60
-    number_of_epochs = 5
-
-
-    if experiment=='T1TimeLSTM':
-        padding_value = 0.123456789
-        padded_inputs = tf.keras.preprocessing.sequence.pad_sequences(X_train,
-                                                                      padding='post',
-                                                                      value=padding_value,
-                                                                      dtype='float32')
-
-        print(padded_inputs.shape)
-        regressor = Sequential()
-        regressor.add(Masking(mask_value=padding_value))
-        regressor.add(T1TimeLSTM(units=lstm_units))
-        regressor.add(Dense(units=y_train.shape[1], activation='sigmoid'))
-
-        regressor.compile(optimizer='adam', loss='mean_squared_error')
-        history = regressor.fit(padded_inputs, y_train, batch_size=1, epochs=number_of_epochs, verbose=2)
-        X_test = np.array([padded_inputs[0,:,:]])
-        print(X_test.shape)
-        a = regressor.predict(X_test)
-        print(a)
-        print(history.history['loss'])
-
-
-    if experiment == 'T2TimeLSTM':
-        padding_value = 0.123456789
-        padded_inputs = tf.keras.preprocessing.sequence.pad_sequences(X_train,
-                                                                      padding='post',
-                                                                      value=padding_value,
-                                                                      dtype='float32')
-
-        print(padded_inputs.shape)
-        regressor = Sequential()
-        regressor.add(Masking(mask_value=padding_value))
-        regressor.add(T2TimeLSTM(units=lstm_units))
-        regressor.add(Dense(units=y_train.shape[1], activation='sigmoid'))
-
-        regressor.compile(optimizer='adam', loss='mean_squared_error')
-        history = regressor.fit(padded_inputs, y_train, batch_size=1, epochs=number_of_epochs, verbose=2)
-        X_test = np.array([padded_inputs[0, :, :]])
-        print(X_test.shape)
-        a = regressor.predict(X_test)
-        print(a)
-        print(history.history['loss'])
-
-
-    if experiment == 'TimeDepMasking':
-        lstm_units = 60
-        padding_value = 0.123456789
-        padded_inputs = tf.keras.preprocessing.sequence.pad_sequences(X_train,
-                                                                      padding='post',
-                                                                      value=padding_value,
-                                                                      dtype='float32')
-
-        print(padded_inputs.shape)
-        regressor = Sequential()
-        regressor.add(Masking(mask_value=padding_value))
-        regressor.add(TimeDepMasking(units=lstm_units))
-        regressor.add(Dense(units=y_train.shape[1], activation='sigmoid'))
-
-        regressor.compile(optimizer='adam', loss='mean_squared_error')
-        history = regressor.fit(padded_inputs, y_train, batch_size=1, epochs=number_of_epochs, verbose=2)
-        X_test = np.array([padded_inputs[0, :, :]])
-        print(X_test.shape)
-        a = regressor.predict(X_test)
-        print(a)
-        print(history.history['loss'])
-
-
-
-
-    if experiment == 'TimeDepJointEmbedding':
-        lstm_units = 60
-        padding_value = 0.123456789
-        padded_inputs = tf.keras.preprocessing.sequence.pad_sequences(X_train,
-                                                                      padding='post',
-                                                                      value=padding_value,
-                                                                      dtype='float32')
-
-        print(padded_inputs.shape)
-        regressor = Sequential()
-        regressor.add(Masking(mask_value=padding_value))
-        regressor.add(TimeDepJointEmbedding(units=lstm_units))
-        regressor.add(Dense(units=y_train.shape[1], activation='sigmoid'))
-
-        regressor.compile(optimizer='adam', loss='mean_squared_error')
-        history = regressor.fit(padded_inputs, y_train, batch_size=1, epochs=number_of_epochs, verbose=2)
-        X_test = np.array([padded_inputs[0, :, :]])
-        print(X_test.shape)
-        a = regressor.predict(X_test)
-        print(a)
-        print(history.history['loss'])
-
-
-    if experiment == 'VanillaLSTM':
-        only_time = False
-        if only_time:
-            X_train_bis = []
-            number_of_event = len(X_train[0][0])
-            for idx in range(len(X_train)):
-                seq = X_train[idx]
-                ts_list = [[a[-1]] for a in seq]
-                X_train_bis.append(ts_list)
-
-            padding_value = 0.123456789
-            padded_inputs = tf.keras.preprocessing.sequence.pad_sequences(X_train_bis,
-                                                                          padding='post',
-                                                                          value=padding_value,
-                                                                          dtype='float32')
-        else:
-            padding_value = 0.123456789
-            padded_inputs = tf.keras.preprocessing.sequence.pad_sequences(X_train,
-                                                                          padding='post',
-                                                                          value=padding_value,
-                                                                          dtype='float32')
-        print(padded_inputs.shape)
-        regressor = Sequential()
-        regressor.add(Masking(mask_value=padding_value))
-        regressor.add(LSTM(units=lstm_units))
-        regressor.add(Dense(units=y_train.shape[1], activation='sigmoid'))
-
-        regressor.compile(optimizer='adam', loss='mean_squared_error')
-        history = regressor.fit(padded_inputs, y_train, batch_size=50, epochs=number_of_epochs, verbose=2)
-        X_test = np.array([padded_inputs[0, :, :]])
-        print(X_test.shape)
-        a = regressor.predict(X_test)
-        print(a)
-        print(history.history['loss'])
+    padded_inputs = tf.keras.preprocessing.sequence.pad_sequences(X_test,
+                                                                  padding='post',
+                                                                  value=padding_value,
+                                                                  dtype='float32')
+    pred = regressor_TimeDep.predict(padded_inputs)
+    mean_sum_of_squares = sum([(y_test[i] - pred[i]) ** 2 for i in range(test_set_length)]) / test_set_length
+    MSE[method] = mean_sum_of_squares
