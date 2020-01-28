@@ -470,7 +470,7 @@ class DatasetDelayPredictionStackOverflow(object):
 
         self.events_list = [[int(event)-1 for event in events] for events in events_list if len(events) >= min_len]
 
-        self.number_of_event = max(max(self.events_list)) + 1
+        self.number_of_events = max(max(self.events_list)) + 1 #To-Do: replace the +1
 
         print('Reading timestamps file...')
         with open(self.timestamps_file_path) as f:
