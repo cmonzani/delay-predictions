@@ -1,5 +1,4 @@
 import tensorflow as tf
-from tensorflow.keras import Sequential
 from tensorflow.keras.layers import Dense, Dropout, Masking, RNN
 from tensorflow.keras.layers import Layer
 import numpy as np
@@ -78,6 +77,9 @@ class T1TimeLSTMCell(Layer):
                  unit_forget_bias=True,
                  kernel_regularizer=None,
                  recurrent_regularizer=None,
+                 timegate_initializer='glorot_uniform',
+                 timegate_regularizer=None,
+                 timegate_constraint=None,
                  bias_regularizer=None,
                  kernel_constraint=None,
                  recurrent_constraint=None,
@@ -96,15 +98,19 @@ class T1TimeLSTMCell(Layer):
         self.kernel_initializer = initializers.get(kernel_initializer)
         self.recurrent_initializer = initializers.get(recurrent_initializer)
         self.bias_initializer = initializers.get(bias_initializer)
+        self.timegate_initializer = initializers.get(timegate_initializer)
         self.unit_forget_bias = unit_forget_bias
+
 
         self.kernel_regularizer = regularizers.get(kernel_regularizer)
         self.recurrent_regularizer = regularizers.get(recurrent_regularizer)
         self.bias_regularizer = regularizers.get(bias_regularizer)
+        self.timegate_regularizer = regularizers.get(timegate_regularizer)
 
         self.kernel_constraint = constraints.get(kernel_constraint)
         self.recurrent_constraint = constraints.get(recurrent_constraint)
         self.bias_constraint = constraints.get(bias_constraint)
+        self.timegate_constraint = constraints.get(timegate_constraint)
 
         self.dropout = min(1., max(0., dropout))
         self.recurrent_dropout = min(1., max(0., recurrent_dropout))
@@ -125,18 +131,25 @@ class T1TimeLSTMCell(Layer):
 
             self.recurrent_initializer = recurrent_identity
 
-        self.kernel = self.add_weight(shape=(input_dim, self.units * 6),
+        self.kernel = self.add_weight(shape=(input_dim, self.units * 4),
                                       name='kernel',
                                       initializer=self.kernel_initializer,
                                       regularizer=self.kernel_regularizer,
                                       constraint=self.kernel_constraint)
 
         self.recurrent_kernel = self.add_weight(
-            shape=(self.units, self.units * 6),
+            shape=(self.units, self.units * 4),
             name='recurrent_kernel',
             initializer=self.recurrent_initializer,
             regularizer=self.recurrent_regularizer,
             constraint=self.recurrent_constraint)
+
+        self.timegate_kernel = self.add_weight((input_dim + 1, self.units),
+                                               name='timegate_kernel',
+                                               initializers=self.timegate_initializer,
+                                               regularizer=self.timegate_regularizer,
+                                               constraint=self.timegate_constraint)
+
 
         if self.use_bias:
             if self.unit_forget_bias:
@@ -157,33 +170,34 @@ class T1TimeLSTMCell(Layer):
         else:
             self.bias = None
 
+
+
         self.kernel_i = self.kernel[:, :self.units]
         self.kernel_f = self.kernel[:, self.units: self.units * 2]
-        self.kernel_t = self.kernel[:, self.units * 2: self.units * 3]
-        self.kernel_c = self.kernel[:, self.units * 3:self.units * 4]
-        self.kernel_o = self.kernel[:, self.units * 4:self.units * 5]
-        self.kernel_tt = self.kernel[:, self.units * 5:]
+        self.kernel_c = self.kernel[:, self.units * 2:self.units * 3]
+        self.kernel_o = self.kernel[:, self.units * 3:self.units * 4]
 
         self.recurrent_kernel_i = self.recurrent_kernel[:, :self.units]
         self.recurrent_kernel_f = (self.recurrent_kernel[:, self.units: self.units * 2])
-        self.recurrent_kernel_t = (self.recurrent_kernel[:, self.units * 2: self.units * 3])
-        self.recurrent_kernel_c = (self.recurrent_kernel[:, self.units * 3:self.units * 4])
-        self.recurrent_kernel_o = self.recurrent_kernel[:, self.units * 4: self.units * 5]
-        self.recurrent_kernel_tt = self.recurrent_kernel[:, self.units * 5 :]
+        self.recurrent_kernel_c = (self.recurrent_kernel[:, self.units * 2:self.units * 3])
+        self.recurrent_kernel_o = self.recurrent_kernel[:, self.units * 3: self.units * 4]
+
+        self.timegate_kernel_x = self.timegate_kernel[:input_dim, :]
+        self.timegate_kernel_t = self.timegate_kernel[input_dim:, :]
 
         if self.use_bias:
             self.bias_i = self.bias[:self.units]
             self.bias_f = self.bias[self.units: self.units * 2]
-            self.bias_t = self.bias[self.units * 2: self.units * 3]
-            self.bias_c = self.bias[self.units * 3: self.units * 4]
-            self.bias_o = self.bias[self.units * 4:self.units * 5]
+            self.bias_c = self.bias[self.units * 2:self.units * 3]
+            self.bias_o = self.bias[self.units * 3: self.units * 4]
+            self.bias_t = self.bias[self.units * 4: self.units * 5]
 
         else:
             self.bias_i = None
             self.bias_f = None
-            self.bias_t = None
             self.bias_c = None
             self.bias_o = None
+            self.bias_t = None
 
         self.built = True
 
@@ -193,14 +207,14 @@ class T1TimeLSTMCell(Layer):
                 K.ones_like(inputs),
                 self.dropout,
                 training=training,
-                count=5)
+                count=4)
         if (0 < self.recurrent_dropout < 1 and
                 self._recurrent_dropout_mask is None):
             self._recurrent_dropout_mask = _generate_dropout_mask(
                 K.ones_like(states[0]),
                 self.recurrent_dropout,
                 training=training,
-                count=5)
+                count=4)
 
         # dropout matrices for input units
         dp_mask = self._dropout_mask
@@ -214,28 +228,32 @@ class T1TimeLSTMCell(Layer):
 
         x_t = inputs[:, :-1]
         dt = inputs[:, -1]
+
         if 0. < self.dropout < 1.:
             x_t *= dp_mask[0]
-        z = K.dot(x_t, self.kernel[:-1, :self.units * 5])
+        z = K.dot(x_t, self.kernel)
         if 0. < self.recurrent_dropout < 1.:
             h_tm1 *= rec_dp_mask[0]
-        z += K.dot(h_tm1, self.recurrent_kernel[:, :self.units * 5])
+        z += K.dot(h_tm1, self.recurrent_kernel)
         if self.use_bias:
-            z = K.bias_add(z, self.bias[:self.units * 5])
+            z = K.bias_add(z, self.bias[:self.units * 4])
 
-        dt_aux = dt * self.recurrent_kernel[-1, self.units * 5:]
+        x_Wxt = x_t * self.timegate_kernel[:-1, :]
+        dt_Wtt = dt * self.timegate_kernel[-1, :]
+
+        T = x_Wxt + self.time_activation(dt_Wtt)
+        T = K.bias_add(T, self.bias[self.units * 4:])
+        T = self.time_activation(T)
 
         z0 = z[:, :self.units]
         z1 = z[:, self.units: 2 * self.units]
         z2 = z[:, 2 * self.units: 3 * self.units]
         z3 = z[:, 3 * self.units: 4 * self.units]
-        z4 = z[:, 4 * self.units: 5 * self.units]
 
         i = self.recurrent_activation(z0)
         f = self.recurrent_activation(z1)
-        t = self.time_activation(z2 + dt_aux)
-        c = f * c_tm1 + i * t * self.activation(z3)
-        o = self.recurrent_activation(z4)
+        c = f * c_tm1 + i * T * self.activation(z2)
+        o = self.recurrent_activation(z3)
         h = o * self.activation(c)
 
         if 0 < self.dropout + self.recurrent_dropout:
