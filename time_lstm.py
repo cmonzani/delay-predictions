@@ -570,6 +570,9 @@ class T2TimeLSTMCell(Layer):
                  kernel_constraint=None,
                  recurrent_constraint=None,
                  bias_constraint=None,
+                 timegate_initializer='glorot_uniform',
+                 timegate_regularizer=None,
+                 timegate_constraint=None,
                  dropout=0.,
                  recurrent_dropout=0.,
                  implementation=2,
@@ -587,14 +590,17 @@ class T2TimeLSTMCell(Layer):
         self.recurrent_initializer = initializers.get(recurrent_initializer)
         self.bias_initializer = initializers.get(bias_initializer)
         self.unit_forget_bias = unit_forget_bias
+        self.timegate_initializer = initializers.get(timegate_initializer)
 
         self.kernel_regularizer = regularizers.get(kernel_regularizer)
         self.recurrent_regularizer = regularizers.get(recurrent_regularizer)
         self.bias_regularizer = regularizers.get(bias_regularizer)
+        self.timegate_regularizer = regularizers.get(timegate_regularizer)
 
         self.kernel_constraint = constraints.get(kernel_constraint)
         self.recurrent_constraint = constraints.get(recurrent_constraint)
         self.bias_constraint = constraints.get(bias_constraint)
+        self.timegate_constraint = constraints.get(timegate_constraint)
 
         self.dropout = min(1., max(0., dropout))
         self.recurrent_dropout = min(1., max(0., recurrent_dropout))
@@ -616,18 +622,26 @@ class T2TimeLSTMCell(Layer):
 
             self.recurrent_initializer = recurrent_identity
 
-        self.kernel = self.add_weight(shape=(input_dim, self.units * 8),
+        self.kernel = self.add_weight(shape=(input_dim, self.units * 4),
                                       name='kernel',
                                       initializer=self.kernel_initializer,
                                       regularizer=self.kernel_regularizer,
                                       constraint=self.kernel_constraint)
 
         self.recurrent_kernel = self.add_weight(
-            shape=(self.units, self.units * 8),
+            shape=(self.units, self.units * 4),
             name='recurrent_kernel',
             initializer=self.recurrent_initializer,
             regularizer=self.recurrent_regularizer,
             constraint=self.recurrent_constraint)
+
+        self.timegate_kernel = self.add_weight(
+            shape=(input_dim + 1, self.units * 2),
+            name='timegate_kernel',
+            initializer=self.timegate_initializers,
+            regularizer=self.timegate_regularizer,
+            constraint=self.timegate_constraint
+            )
 
         if self.use_bias:
             if self.unit_forget_bias:
@@ -651,37 +665,34 @@ class T2TimeLSTMCell(Layer):
 
         self.kernel_i = self.kernel[:, :self.units]
         self.kernel_f = self.kernel[:, self.units: self.units * 2]
-        self.kernel_t1 = self.kernel[:, self.units * 2: self.units * 3]
-        self.kernel_t2 = self.kernel[:, self.units*3: self.units*4]
-        self.kernel_c = self.kernel[:, self.units * 4:self.units * 5]
-        self.kernel_o = self.kernel[:, self.units * 5:self.units * 6]
-        self.kernel_tt1 = self.kernel[:, self.units * 6:self.units * 7]
-        self.kernel_tt2 = self.kernel[:, self.units * 7:]
+        self.kernel_c = self.kernel[:, self.units * 2:self.units * 3]
+        self.kernel_o = self.kernel[:, self.units * 3:self.units * 4]
 
         self.recurrent_kernel_i = self.recurrent_kernel[:, :self.units]
         self.recurrent_kernel_f = (self.recurrent_kernel[:, self.units: self.units * 2])
-        self.recurrent_kernel_t1 = (self.recurrent_kernel[:, self.units * 2: self.units * 3])
-        self.recurrent_kernel_t2 = (self.recurrent_kernel[:, self.units * 3:self.units * 4])
-        self.recurrent_kernel_c = (self.recurrent_kernel[:, self.units * 4:self.units * 5])
-        self.recurrent_kernel_o = self.recurrent_kernel[:, self.units * 5: self.units * 6]
-        self.recurrent_kernel_tt1 = self.recurrent_kernel[:, self.units * 6:self.units * 7]
-        self.recurrent_kernel_tt2 = self.recurrent_kernel[:, self.units * 7:]
+        self.recurrent_kernel_c = (self.recurrent_kernel[:, self.units * 2:self.units * 3])
+        self.recurrent_kernel_o = self.recurrent_kernel[:, self.units * 3: self.units * 4]
+
+        self.timegate_kernel_xt1 = self.timegate_kernel[:-1, :self.units]
+        self.timegate_kernel_xt2 = self.kernel[:-1, self.units:]
+        self.timegate_kernel_tt1 = self.timegate_kernel[-1, :self.units]
+        self._timegate_kernel_tt2 = self.kernel[-1, self.units:]
 
         if self.use_bias:
             self.bias_i = self.bias[:self.units]
             self.bias_f = self.bias[self.units: self.units * 2]
-            self.bias_t1 = self.bias[self.units * 2: self.units * 3]
-            self.bias_t2 = self.bias[self.units * 3: self.units * 4]
-            self.bias_c = self.bias[self.units * 4: self.units * 5]
-            self.bias_o = self.bias[self.units * 5:self.units * 6]
+            self.bias_c = self.bias[self.units * 2: self.units * 3]
+            self.bias_o = self.bias[self.units * 3:self.units * 4]
+            self.bias_t1 = self.bias[self.units * 4: self.units * 5]
+            self.bias_t2 = self.bias[self.units * 5: self.units * 6]
 
         else:
             self.bias_i = None
             self.bias_f = None
-            self.bias_t1 = None
-            self.bias_t2 = None
             self.bias_c = None
             self.bias_o = None
+            self.bias_t1 = None
+            self.bias_t2 = None
 
         self.built = True
 
@@ -693,14 +704,14 @@ class T2TimeLSTMCell(Layer):
                 K.ones_like(inputs),
                 self.dropout,
                 training=training,
-                count=5)
+                count=4)
         if (0 < self.recurrent_dropout < 1 and
                 self._recurrent_dropout_mask is None):
             self._recurrent_dropout_mask = _generate_dropout_mask(
                 K.ones_like(states[0]),
                 self.recurrent_dropout,
                 training=training,
-                count=5)
+                count=4)
 
         # dropout matrices for input units
         dp_mask = self._dropout_mask
@@ -716,29 +727,37 @@ class T2TimeLSTMCell(Layer):
         dt = inputs[:, -1]
         if 0. < self.dropout < 1.:
             x_t *= dp_mask[0]
-        z = K.dot(x_t, self.kernel[:-1, :self.units * 6])
+        z = K.dot(x_t, self.kernel)
         if 0. < self.recurrent_dropout < 1.:
             h_tm1 *= rec_dp_mask[0]
-        z += K.dot(h_tm1, self.recurrent_kernel[:, :self.units * 6])
+        z += K.dot(h_tm1, self.recurrent_kernel)
         if self.use_bias:
-            z = K.bias_add(z, self.bias[:self.units * 6])
+            z = K.bias_add(z, self.bias[:self.units * 4])
 
-        dt1_aux = dt * self.recurrent_kernel[-1, self.units * 6:self.units*7]
-        dt2_aux = dt * self.recurrent_kernel[-1, self.units *7:]
+        x_W_xt1 = x_t * self.timegate_kernel[:-1, :self.units]
+        dt_W_tt1 = dt * self.timegate_kernel[-1, :self.units]
+
+        x_W_xt2 = x_t * self.timegate_kernel[:-1, self.units:]
+        dt_W_tt2 = dt * self.timegate_kernel[-1, self.units:]
+
+        T1 = x_W_xt1 + self.time_activation(dt_W_tt1)
+        T1 = K.bias_add(T1, self.bias[self.units * 4:self.units * 5])
+        T1 = self.time_activation(T1)
+
+        T2 = x_W_xt2 + self.time_activation(dt_W_tt2)
+        T2 = K.bias_add(T2, self.bias[self.units * 5:self.units * 6])
+        T2 = self.time_activation(T2)
 
         zi = z[:, :self.units]
         zf = z[:, 1 * self.units: 2 * self.units]
-        zt1 = z[:, 2 * self.units: 3 * self.units]
-        zt2 = z[:, 3 * self.units: 4 * self.units]
-        zc = z[:, 4 * self.units: 5 * self.units]
-        zo = z[:, 5 * self.units: 6 * self.units]
+        zc = z[:, 2 * self.units: 3 * self.units]
+        zo = z[:, 3 * self.units: 4 * self.units]
 
         i = self.recurrent_activation(zi)
         f = self.recurrent_activation(zf)
-        t1 = self.time_activation(zt1 + dt1_aux)
-        t2 = self.time_activation(zt2 + dt2_aux)
-        c_tilde = f * c_tm1 + i * t1 * self.activation(zc)
-        c = f * c_tm1 + i * t2 * self.activation(zc)
+
+        c_tilde = f * c_tm1 + i * T1 * self.activation(zc)
+        c = f * c_tm1 + i * T2 * self.activation(zc)
         o = self.recurrent_activation(zo)
         h = o * self.activation(c_tilde)
 
