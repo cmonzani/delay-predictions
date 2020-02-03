@@ -417,6 +417,7 @@ class TimeDepJointEmbeddingCell(Layer):
                  activation='tanh',
                  recurrent_activation='sigmoid',
                  use_bias=True,
+                 embedding_size=20,
                  projection_size=20,
                  kernel_initializer='glorot_uniform',
                  time_initializer='glorot_uniform',
@@ -438,6 +439,7 @@ class TimeDepJointEmbeddingCell(Layer):
                  ):
         super(TimeDepJointEmbeddingCell, self).__init__(**kwargs)
         self.units = units
+        self.embedding_size = embedding_size
         self.projection_size = projection_size
         self.activation = activations.get(activation)
         self.recurrent_activation = activations.get(recurrent_activation)
@@ -481,7 +483,14 @@ class TimeDepJointEmbeddingCell(Layer):
 
             self.recurrent_initializer = recurrent_identity
 
-        self.kernel = self.add_weight(shape=(input_dim, self.units * 4),
+        self.input_embedding = self.add_weight(shape=(input_dim, self.embedding_size),
+                                               name='embedding_matrix',
+                                               initializer=self.kernel_initializer,
+                                               regularizer=self.kernel_regularizer,
+                                               constraint=self.kernel_constraint
+                                               )
+
+        self.kernel = self.add_weight(shape=(self.embedding_size, self.units * 4),
                                       name='kernel',
                                       initializer=self.kernel_initializer,
                                       regularizer=self.kernel_regularizer,
@@ -500,8 +509,8 @@ class TimeDepJointEmbeddingCell(Layer):
                                            regularizer=self.time_regularizer,
                                            constraint=self.time_constraint)
 
-        self.embedding_projector = self.add_weight(shape=(self.projection_size, input_dim),
-                                                   name='projection_onto_embedding_space',
+        self.embedding_projector = self.add_weight(shape=(self.projection_size, self.embedding_size),
+                                                   name='time_projection_onto_embedding_space',
                                                    initializer=self.time_initializer,
                                                    regularizer=self.time_regularizer,
                                                    constraint=self.time_constraint
@@ -590,6 +599,7 @@ class TimeDepJointEmbeddingCell(Layer):
         # inputs: [event_dimension + 1]
 
         x_t = inputs[:, :-1]
+        x_t = K.dot(x_t, self.input_embedding)
         dt = inputs[:, -1]
         dt = tf.reshape(dt, (-1, 1))
 
