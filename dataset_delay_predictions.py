@@ -508,6 +508,7 @@ class DatasetDelayPredictionStackOverflow(object):
         self.full_seqlen = [len(ts_list) - 1 for ts_list in self.timestamps_diffs_list]
         self.full_features_dt = []
         self.full_features_log = []
+        self.full_features_log_dt = []
         for i in range(len(self.timestamps_diffs_list)):
 
 
@@ -518,17 +519,25 @@ class DatasetDelayPredictionStackOverflow(object):
             list_of_log_timestamps_diff = self.log_timestamps_diffs_list[i]
             seq = []
             seq_log = []
+            seq_log_dt = []
             aux = [0. for _ in range(self.number_of_events)]
             for j in range(seqlen):
                 aux_ = aux.copy()
                 aux_[list_of_events[j]] = 1.
+
+                aux_log = aux_.copy()
+                aux_log.append(list_of_log_timestamps_diff[j])
+                seq_log.append(aux_log)
+
+                aux_log.append(list_of_timestamps_diff[j])
+                seq_log_dt.append(aux_log)
+
                 aux_.append(list_of_timestamps_diff[j])
                 seq.append(aux_)
-                aux_log = aux_.copy()
-                aux_log[-1] = list_of_log_timestamps_diff[j]
-                seq_log.append(aux_log)
+
             self.full_features_dt.append(seq)
             self.full_features_log.append(seq_log)
+            self.full_features_log_dt.append(seq_log_dt)
 
         self.training_set_length = int(4/5 * self.number_of_users)
 
