@@ -518,7 +518,7 @@ class DatasetDelayPredictionStackOverflow(object):
             list_of_log_timestamps_diff = self.log_timestamps_diffs_list[i]
             seq = []
             seq_log = []
-            aux = [0. for _ in range(self.number_of_event)]
+            aux = [0. for _ in range(self.number_of_events)]
             for j in range(seqlen):
                 aux_ = aux.copy()
                 aux_[list_of_events[j]] = 1.
@@ -555,7 +555,7 @@ class DatasetDelayPredictionStackOverflow(object):
             t.append(timestamps_list)
             seqlen.append(len(events_list))
             y.append([math.log(1 + (list_of_timestamps[-1]-list_of_timestamps[-2])/self.constant_C)])
-        padding_vector = [0 for _ in range(self.number_of_event)]
+        padding_vector = [0 for _ in range(self.number_of_events)]
         max_len = max([len(ts_list) for ts_list in t])
         assert max_len == max([len(ev_list) for ev_list in x])
 
