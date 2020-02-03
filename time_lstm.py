@@ -228,7 +228,7 @@ class T1TimeLSTMCell(Layer):
 
         x_t = inputs[:, :-1]
         dt = inputs[:, -1]
-        dt = tf.reshape(dt, (-1, 1)) 
+        dt = tf.reshape(dt, (-1, 1))
 
         if 0. < self.dropout < 1.:
             x_t *= dp_mask[0]
@@ -623,7 +623,7 @@ class T2TimeLSTMCell(Layer):
 
             self.recurrent_initializer = recurrent_identity
 
-        self.kernel = self.add_weight(shape=(input_dim, self.units * 4),
+        self.kernel = self.add_weight(shape=(input_dim - 1, self.units * 4),
                                       name='kernel',
                                       initializer=self.kernel_initializer,
                                       regularizer=self.kernel_regularizer,
@@ -637,9 +637,9 @@ class T2TimeLSTMCell(Layer):
             constraint=self.recurrent_constraint)
 
         self.timegate_kernel = self.add_weight(
-            shape=(input_dim + 1, self.units * 2),
+            shape=(input_dim, self.units * 2),
             name='timegate_kernel',
-            initializer=self.timegate_initializers,
+            initializer=self.timegate_initializer,
             regularizer=self.timegate_regularizer,
             constraint=self.timegate_constraint
             )
@@ -728,6 +728,8 @@ class T2TimeLSTMCell(Layer):
 
         x_t = inputs[:, :-1]
         dt = inputs[:, -1]
+        dt = tf.reshape(dt, (-1, 1))
+
         if 0. < self.dropout < 1.:
             x_t *= dp_mask[0]
         z = K.dot(x_t, self.kernel)
@@ -737,10 +739,10 @@ class T2TimeLSTMCell(Layer):
         if self.use_bias:
             z = K.bias_add(z, self.bias[:self.units * 4])
 
-        x_W_xt1 = x_t * self.timegate_kernel[:-1, :self.units]
+        x_W_xt1 = K.dot(x_t ,self.timegate_kernel[:-1, :self.units])
         dt_W_tt1 = dt * self.timegate_kernel[-1, :self.units]
 
-        x_W_xt2 = x_t * self.timegate_kernel[:-1, self.units:]
+        x_W_xt2 = K.dot(x_t, self.timegate_kernel[:-1, self.units:])
         dt_W_tt2 = dt * self.timegate_kernel[-1, self.units:]
 
         T1 = x_W_xt1 + self.time_activation(dt_W_tt1)
