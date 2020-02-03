@@ -417,15 +417,19 @@ class TimeDepJointEmbeddingCell(Layer):
                  activation='tanh',
                  recurrent_activation='sigmoid',
                  use_bias=True,
+                 projection_size=20,
                  kernel_initializer='glorot_uniform',
+                 time_initializer='glorot_uniform',
                  recurrent_initializer='orthogonal',
                  bias_initializer='zeros',
                  unit_forget_bias=True,
                  kernel_regularizer=None,
+                 time_regularizer=None,
                  recurrent_regularizer=None,
                  bias_regularizer=None,
                  kernel_constraint=None,
                  recurrent_constraint=None,
+                 time_constraint=None,
                  bias_constraint=None,
                  dropout=0.,
                  recurrent_dropout=0.,
@@ -434,22 +438,26 @@ class TimeDepJointEmbeddingCell(Layer):
                  ):
         super(TimeDepJointEmbeddingCell, self).__init__(**kwargs)
         self.units = units
+        self.projection_size = projection_size
         self.activation = activations.get(activation)
         self.recurrent_activation = activations.get(recurrent_activation)
-        self.time_mask_activation = activations.get('sigmoid')
+        self.time_activation = activations.get('sigmoid')
         self.use_bias = use_bias
 
         self.kernel_initializer = initializers.get(kernel_initializer)
         self.recurrent_initializer = initializers.get(recurrent_initializer)
+        self.time_initializer = initializers.get(time_initializer)
         self.bias_initializer = initializers.get(bias_initializer)
         self.unit_forget_bias = unit_forget_bias
 
         self.kernel_regularizer = regularizers.get(kernel_regularizer)
+        self.time_regularizer = regularizers.get(time_regularizer)
         self.recurrent_regularizer = regularizers.get(recurrent_regularizer)
         self.bias_regularizer = regularizers.get(bias_regularizer)
 
         self.kernel_constraint = constraints.get(kernel_constraint)
         self.recurrent_constraint = constraints.get(recurrent_constraint)
+        self.time_constraint = constraints.get(time_constraint)
         self.bias_constraint = constraints.get(bias_constraint)
 
         self.dropout = min(1., max(0., dropout))
@@ -463,7 +471,7 @@ class TimeDepJointEmbeddingCell(Layer):
     def build(self, input_shape):
 
         input_dim = input_shape[-1]
-        input_dim -= 1 # We add time and event
+        input_dim -= 1 # We add time and event afterwards
 
         if type(self.recurrent_initializer).__name__ == 'Identity':
             def recurrent_identity(shape, gain=1., dtype=None):
@@ -473,7 +481,7 @@ class TimeDepJointEmbeddingCell(Layer):
 
             self.recurrent_initializer = recurrent_identity
 
-        self.kernel = self.add_weight(shape=(input_dim, self.units * 6),
+        self.kernel = self.add_weight(shape=(input_dim, self.units * 4),
                                       name='kernel',
                                       initializer=self.kernel_initializer,
                                       regularizer=self.kernel_regularizer,
@@ -486,6 +494,21 @@ class TimeDepJointEmbeddingCell(Layer):
             regularizer=self.recurrent_regularizer,
             constraint=self.recurrent_constraint)
 
+        self.time_kernel = self.add_weight(shape=(1, self.projection_size),
+                                           name='time_kernel',
+                                           initializer=self.time_initializer,
+                                           regularizer=self.time_regularizer,
+                                           constraint=self.time_constraint)
+
+        self.embedding_projector = self.add_weight(shape=(self.projection_size, input_dim),
+                                                   name='projection_onto_embedding_space',
+                                                   initializer=self.time_initializer,
+                                                   regularizer=self.time_regularizer,
+                                                   constraint=self.time_constraint
+                                                   )
+
+
+
         if self.use_bias:
             if self.unit_forget_bias:
 
@@ -493,24 +516,32 @@ class TimeDepJointEmbeddingCell(Layer):
                     return K.concatenate([
                         self.bias_initializer((self.units,), *args, **kwargs),
                         initializers.Ones()((self.units,), *args, **kwargs),
-                        self.bias_initializer((self.units * 3,), *args, **kwargs),
+                        self.bias_initializer((self.units * 2,), *args, **kwargs),
                     ])
             else:
                 bias_initializer = self.bias_initializer
-            self.bias = self.add_weight(shape=(self.units * 5,),
+            self.bias = self.add_weight(shape=(self.units * 4,),
                                         name='bias',
                                         initializer=bias_initializer,
                                         regularizer=self.bias_regularizer,
                                         constraint=self.bias_constraint)
+
+            time_bias_initializer = initializers.Ones()((self.projection_size,))
+            self.time_bias = self.add_weight(shape=(self.projection_size,),
+                                             name='time_bias',
+                                             initializer=None,
+                                             regularizer=self.bias_regularizer,
+                                             constraint=self.bias_constraint
+                                             )
+
         else:
             self.bias = None
+            self.time_bias = None
 
         self.kernel_i = self.kernel[:, :self.units]
         self.kernel_f = self.kernel[:, self.units: self.units * 2]
         self.kernel_c = self.kernel[:, self.units * 2:self.units * 3]
         self.kernel_o = self.kernel[:, self.units * 3:self.units * 4]
-        self.kernel_Wt = self.kernel[:, self.units * 4: self.units * 5]
-        self.kernel_Et = self.kernel[:, self.units * 4: self.units * 5]
 
         self.recurrent_kernel_i = self.recurrent_kernel[:, :self.units]
         self.recurrent_kernel_f = (self.recurrent_kernel[:, self.units: self.units * 2])
@@ -522,7 +553,7 @@ class TimeDepJointEmbeddingCell(Layer):
             self.bias_f = self.bias[self.units: self.units * 2]
             self.bias_c = self.bias[self.units * 2: self.units * 3]
             self.bias_o = self.bias[self.units * 3:self.units * 4]
-            self.bias_t = self.bias[self.units * 4: self.units * 5]
+            self.bias_t = self.time_bias
 
         else:
             self.bias_i = None
@@ -539,14 +570,14 @@ class TimeDepJointEmbeddingCell(Layer):
                 K.ones_like(inputs),
                 self.dropout,
                 training=training,
-                count=5)
+                count=4)
         if (0 < self.recurrent_dropout < 1 and
                 self._recurrent_dropout_mask is None):
             self._recurrent_dropout_mask = _generate_dropout_mask(
                 K.ones_like(states[0]),
                 self.recurrent_dropout,
                 training=training,
-                count=5)
+                count=4)
 
         # dropout matrices for input units
         dp_mask = self._dropout_mask
@@ -560,11 +591,16 @@ class TimeDepJointEmbeddingCell(Layer):
 
         x_t = inputs[:, :-1]
         dt = inputs[:, -1]
-        p_d = dt * self.kernel[-1, self.units * 4:self.units * 5]
-        p_d += self.bias[self.units * 4:self.units * 5]
-        s_d = self.time_mask_activation(p_d)
-        size = self.kernel.shape
-        g_d = tf.tensordot(s_d, self.kernel[:, self.units *5:self.units * 6],1)
+        dt = tf.reshape(dt, (-1, 1))
+
+        p_d = dt * self.time_kernel
+        p_d = K.bias_add(p_d, self.time_bias)
+
+        aux_mat = self.time_activation(p_d)
+
+        s_d = aux_mat / tf.reshape(tf.reduce_sum(aux_mat, axis=1), (-1,1))
+
+        g_d = K.dot(s_d, self.embedding_projector)
 
         x_t = tf.add(x_t, g_d) / 2
 
@@ -577,7 +613,6 @@ class TimeDepJointEmbeddingCell(Layer):
         if self.use_bias:
             z = K.bias_add(z, self.bias[:self.units * 4])
 
-        dt_aux = dt * self.recurrent_kernel[-1, self.units * 4:]
 
         z0 = z[:, :self.units]
         z1 = z[:, self.units: 2 * self.units]
