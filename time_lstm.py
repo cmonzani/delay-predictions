@@ -131,7 +131,7 @@ class T1TimeLSTMCell(Layer):
 
             self.recurrent_initializer = recurrent_identity
 
-        self.kernel = self.add_weight(shape=(input_dim, self.units * 4),
+        self.kernel = self.add_weight(shape=(input_dim - 1, self.units * 4),
                                       name='kernel',
                                       initializer=self.kernel_initializer,
                                       regularizer=self.kernel_regularizer,
@@ -144,9 +144,9 @@ class T1TimeLSTMCell(Layer):
             regularizer=self.recurrent_regularizer,
             constraint=self.recurrent_constraint)
 
-        self.timegate_kernel = self.add_weight((input_dim + 1, self.units),
+        self.timegate_kernel = self.add_weight(shape=(input_dim, self.units),
                                                name='timegate_kernel',
-                                               initializers=self.timegate_initializer,
+                                               initializer=self.timegate_initializer,
                                                regularizer=self.timegate_regularizer,
                                                constraint=self.timegate_constraint)
 
@@ -182,8 +182,8 @@ class T1TimeLSTMCell(Layer):
         self.recurrent_kernel_c = (self.recurrent_kernel[:, self.units * 2:self.units * 3])
         self.recurrent_kernel_o = self.recurrent_kernel[:, self.units * 3: self.units * 4]
 
-        self.timegate_kernel_x = self.timegate_kernel[:input_dim, :]
-        self.timegate_kernel_t = self.timegate_kernel[input_dim:, :]
+        self.timegate_kernel_x = self.timegate_kernel[:-1, :]
+        self.timegate_kernel_t = self.timegate_kernel[-1, :]
 
         if self.use_bias:
             self.bias_i = self.bias[:self.units]
@@ -228,6 +228,7 @@ class T1TimeLSTMCell(Layer):
 
         x_t = inputs[:, :-1]
         dt = inputs[:, -1]
+        dt = tf.reshape(dt, (-1, 1)) 
 
         if 0. < self.dropout < 1.:
             x_t *= dp_mask[0]
@@ -238,7 +239,7 @@ class T1TimeLSTMCell(Layer):
         if self.use_bias:
             z = K.bias_add(z, self.bias[:self.units * 4])
 
-        x_Wxt = x_t * self.timegate_kernel[:-1, :]
+        x_Wxt = K.dot(x_t,self.timegate_kernel[:-1, :])
         dt_Wtt = dt * self.timegate_kernel[-1, :]
 
         T = x_Wxt + self.time_activation(dt_Wtt)
@@ -642,6 +643,8 @@ class T2TimeLSTMCell(Layer):
             regularizer=self.timegate_regularizer,
             constraint=self.timegate_constraint
             )
+
+        #To-Do : constraint on Wt1 < 0
 
         if self.use_bias:
             if self.unit_forget_bias:
