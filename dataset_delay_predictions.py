@@ -530,7 +530,7 @@ class DatasetDelayPredictionStackOverflow(object):
             self.full_features_dt.append(seq)
             self.full_features_log.append(seq_log)
 
-        self.training_set_length = int(1/5 * self.number_of_users)
+        self.training_set_length = int(4/5 * self.number_of_users)
 
     def next_for_separated_timestamps_and_events(self):
         # return a batch of data
