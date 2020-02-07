@@ -226,13 +226,16 @@ class Dataset_Delay_Prediction(object):
 
 
 class Dataset_Delay_Prediction_from_list(object):
-    def __init__(self, full_dataset_name, dataset_list, data_path, number_of_events, batch_size=64):
+    def __init__(self, full_dataset_name, datasets_list, data_path, number_of_events, batch_size=64, min_len=5, test_ratio=0.2):
         self.data = []
 
         self.batch_size = batch_size
         self.number_of_events = number_of_events
-        self.dataset_list = dataset_list
+        self.dataset_list = datasets_list
 
+        self.min_len = min_len
+
+        self.test_ratio = test_ratio
 
         self.set_of_users = set([])
 
@@ -244,12 +247,14 @@ class Dataset_Delay_Prediction_from_list(object):
 
         print('Generating dataset '+ full_dataset_name)
 
-        for dataset_name in dataset_list:
+        for dataset_name in datasets_list:
+
             print(f'Reading dataset {dataset_name}')
-            print('Reading labels file...')
             self.labels_file_path = data_path + 'datasets/' + dataset_name + '/labels.txt.gz'
             self.users_file_path = data_path + 'datasets/' + dataset_name + '/users.txt.gz'
             self.timestamps_file_path = data_path + 'datasets/' + dataset_name + '/timestamps.txt.gz'
+
+            print('Reading labels file...')
             self.labels_file = open(self.labels_file_path, 'rb').read()
             hash_value_for_dataset_name = hashlib.sha256(dataset_name.encode()).hexdigest()[:4]
 
@@ -258,12 +263,11 @@ class Dataset_Delay_Prediction_from_list(object):
                     d = json.loads(line)
                     uid = d['uid'] + hash_value_for_dataset_name
                     self.set_of_users.add(uid)
-                    self.timestamps_of_conversion[uid] = d["events"][0]
-                    datetime.datetime.strptime(self.timestamps_of_conversion[uid], time_format)
+                    self.timestamps_of_conversion[uid] = datetime.datetime.strptime(d["events"][0], time_format)
 
             self.number_of_users = len(self.set_of_users)
 
-
+            self.max_event = -1
             print('Reading users file...')
             self.users_file = open(self.users_file_path, 'rb').read()
             with gzip.GzipFile(fileobj=io.BytesIO(self.users_file), mode='rb') as fo:
@@ -274,11 +278,15 @@ class Dataset_Delay_Prediction_from_list(object):
                         length_of_seq = len(d['events'])
                         if length_of_seq > 2:
                             self.users_dataset[uid] = d['events']
+                            self.max_event= max(max(d['events']), self.max_event)
+
                         else:
                             self.set_of_users.remove(uid)
                             del self.timestamps_of_conversion[uid]
                         if length_of_seq > self.max_len:
                             self.max_len = length_of_seq
+
+            self.number_of_events = self.max_event + 1
 
             self.timestamps_file = open(self.timestamps_file_path, 'rb').read()
 
@@ -299,6 +307,7 @@ class Dataset_Delay_Prediction_from_list(object):
 
         self.timestamps_diff_dataset = {}
         print('Generating timestamps differences...')
+
         for uid in self.timestamps_str_dataset.keys():
             timestamps_diff = []
             timestamp_dt_list = self.timestamps_dt_dataset[uid].copy()
@@ -319,9 +328,21 @@ class Dataset_Delay_Prediction_from_list(object):
                     max_gap = dt
             self.timestamps_diff_dataset[uid] = timestamps_diff
 
+        self.diff_between_last_event_and_conv = {}
+
+        for uid in self.timestamps_dt_dataset.keys():
+            last_event_datetime = self.timestamps_dt_dataset[uid][-1]
+            conversion_datetime = self.timestamps_of_conversion[uid]
+            diff = (conversion_datetime - last_event_datetime).total_seconds()
+            self.diff_between_last_event_and_conv[uid] = diff
+            if diff > max_gap:
+                max_gap = diff
+
+        self.max_gap = max_gap
         self.constant_C = max_gap / (math.exp(1) - 1)
-        # print(constant_C)
+
         self.log_timestamps_diff = {}
+
         for uid in self.timestamps_str_dataset.keys():
             self.log_timestamps_diff[uid] = [math.log(1 + dt / self.constant_C) for dt in
                                              self.timestamps_diff_dataset[uid]]
@@ -343,37 +364,64 @@ class Dataset_Delay_Prediction_from_list(object):
 
         print('Generating data for TimeLSTM')
         # dataset for time LSTM (dt as the last dimension of each event)
-        self.full_features = []
-        self.full_seqlen = []
-        self.full_values = []
 
-        self.max_val = -1
+        self.full_seqlen = []
+
+        self.full_values = []
+        self.log_values = []
+
+        self.full_features_raw_ts = []
+        self.full_features_dt = []
+        self.full_features_log = []
+        self.full_features_log_dt = []
 
         for uid in self.set_of_users:
             event_number_list = self.users_dataset[uid]
             timestamps_list = self.timestamps_dt_dataset[uid]
+            timestamps_diff = self.timestamps_diff_dataset[uid]
+            timestamps_log = self.log_timestamps_diff[uid]
+
             length_of_seq = len(event_number_list)
-            val = (datetime.datetime.strptime(self.timestamps_of_conversion[uid], time_format)
-                   - timestamps_list[-1]).total_seconds()
-            if val > self.max_val:
-                self.max_val = val
-            seq_appended = []
-            t_im1 = timestamps_list[0]
-            for idx in range(length_of_seq):
-                event = [0. for _ in range(self.number_of_events)]
-
-                t_i = timestamps_list[idx]
-                dt = (t_i - t_im1).total_seconds()
-                event[event_number_list[idx]] = 1.
-                event.append(dt)
-                seq_appended.append(event)
-            self.full_features.append(seq_appended)
             self.full_seqlen.append(length_of_seq)
-            self.full_values.append([val])
 
-        for idx in range(len(self.full_values)):
-            dt = self.full_values[idx][0]
-            self.full_values[idx] = [math.log(1 + dt / self.max_val)]
+            val = self.diff_between_last_event_and_conv[uid]
+            self.full_values.append([val])
+            self.log_values.append([math.log(1 + val / self.constant_C)])
+
+            seq = []
+            seq_raw = []
+            seq_dt = []
+            seq_log = []
+            seq_log_dt = []
+
+            aux = [0. for _ in range(self.number_of_events)]
+            for idx in range(length_of_seq):
+                event = aux.copy()
+                event[event_number_list[idx]] = 1
+
+                event_raw = event.copy()
+                event_dt = event.copy()
+                event_log = event.copy()
+
+                event_raw.append(timestamps_list[idx])
+                seq_raw.append(event_raw)
+
+                event_dt.append(timestamps_diff[idx])
+                seq_dt.append(event_dt)
+
+                event_log.append(timestamps_log[idx])
+                seq_log.append(event_log)
+
+                event_log.append(timestamps_diff[idx])
+                seq_log_dt.append(event_log)
+
+            self.full_features_raw_ts.append(seq_raw)
+            self.full_features_dt.append(seq_dt)
+            self.full_features_log.append(seq_log)
+            self.full_features_log_dt.append(seq_log_dt)
+        self.training_set_length = int((1.0 - self.test_ratio) * len(self.full_seqlen))
+        self.test_set_length = len(self.full_seqlen) - self.training_set_length
+
 
 
 
