@@ -13,6 +13,8 @@ class TimeDepMaskingCell(Layer):
     def __init__(self, units,
                  activation='tanh',
                  recurrent_activation='sigmoid',
+                 embedding_size=20,
+                 time_projection_size=20,
                  use_bias=True,
                  kernel_initializer='glorot_uniform',
                  recurrent_initializer='orthogonal',
@@ -31,6 +33,8 @@ class TimeDepMaskingCell(Layer):
                  ):
         super(TimeDepMaskingCell, self).__init__(**kwargs)
         self.units = units
+        self.embedding_size = embedding_size
+        self.time_projection_size = time_projection_size
         self.activation = activations.get(activation)
         self.recurrent_activation = activations.get(recurrent_activation)
         self.time_mask_activation = activations.get('sigmoid')
@@ -70,7 +74,15 @@ class TimeDepMaskingCell(Layer):
 
             self.recurrent_initializer = recurrent_identity
 
-        self.kernel = self.add_weight(shape=(input_dim, self.units * 5),
+        self.input_embedding = self.add_weight(
+            shape=(input_dim, self.embedding_size),
+            name='embedding_projector',
+            initializer=self.kernel_initializer,
+            regularizer=self.kernel_regularizer,
+            constraint=self.kernel_constraint
+        )
+
+        self.kernel = self.add_weight(shape=(self.embedding_size, self.units),
                                       name='kernel',
                                       initializer=self.kernel_initializer,
                                       regularizer=self.kernel_regularizer,
@@ -82,6 +94,22 @@ class TimeDepMaskingCell(Layer):
             initializer=self.recurrent_initializer,
             regularizer=self.recurrent_regularizer,
             constraint=self.recurrent_constraint)
+
+        self.time_transformation = self.add_weight(
+            shape=(1, self.time_projection_size),
+            name='time_transformation',
+            initializer=self.kernel_initializer,
+            regularizer=self.kernel_regularizer,
+            constraint=self.kernel_constraint
+        )
+
+        self.mask_matrix = self.add_weight(
+            shape=(self.time_projection_size, self.embedding_size),
+            name='mask_matrix',
+            initializer = self.kernel_initializer,
+            regularizer = self.kernel_regularizer,
+            constraint = self.kernel_constraint
+        )
 
         if self.use_bias:
             if self.unit_forget_bias:
@@ -106,7 +134,6 @@ class TimeDepMaskingCell(Layer):
         self.kernel_f = self.kernel[:, self.units: self.units * 2]
         self.kernel_c = self.kernel[:, self.units * 2:self.units * 3]
         self.kernel_o = self.kernel[:, self.units * 3:self.units * 4]
-        self.kernel_t = self.kernel[:, self.units * 4: self.units * 5]
 
         self.recurrent_kernel_i = self.recurrent_kernel[:, :self.units]
         self.recurrent_kernel_f = (self.recurrent_kernel[:, self.units: self.units * 2])
@@ -156,11 +183,19 @@ class TimeDepMaskingCell(Layer):
         # inputs: [event_dimension + 1]
 
         x_t = inputs[:, :-1]
+        x_t = K.dot(x_t, self.input_embedding)
+
         dt = inputs[:, -1]
-        c_d = tf.math.log(dt)
-        c_d = c_d * self.kernel[-1, self.units * 4:self.units * 5]
-        c_d = tf.add(c_d, self.bias[self.units * 4:self.units * 5])
+
+        log_dt = tf.math.log(dt)
+        log_dt = tf.reshape(log_dt, (-1, 1))
+
+        c_d = log_dt * self.time_transformation
+
+        c_d_W_d = K.dot(c_d, self.mask_matrix)
+        c_d_w_d = tf.add(c_d_W_d, self.bias[self.units * 4:self.units * 5])
         m_d = self.time_mask_activation(c_d)
+
         x_t = tf.multiply(m_d, x_t)
 
 
