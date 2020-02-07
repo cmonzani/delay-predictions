@@ -487,10 +487,11 @@ class DatasetDelayPredictionStackOverflow(object):
 
         self.timestamps_diffs_list=[]
         print('Generating timestamps differences...')
+
         for timestamps in self.timestamps_list:
             timestamps_diffs = [0.]
             for i in range(0, len(timestamps)-1):
-                timestamps_diffs.append(timestamps[i+1]-timestamps_diffs[i])
+                timestamps_diffs.append(timestamps[i+1]-timestamps[i])
             self.timestamps_diffs_list.append(timestamps_diffs)
 
         self.max_gap = max(max(self.timestamps_diffs_list))
@@ -509,6 +510,7 @@ class DatasetDelayPredictionStackOverflow(object):
         self.full_features_dt = []
         self.full_features_log = []
         self.full_features_log_dt = []
+
         for i in range(len(self.timestamps_diffs_list)):
 
 
