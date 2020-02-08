@@ -586,7 +586,7 @@ class DatasetDelayPredictionStackOverflow(object):
                 aux_.append(list_of_timestamps_diff[j])
                 seq.append(aux_)
 
-            j = seqlen + 1
+            j = seqlen
             aux_ = aux.copy()
             aux_[list_of_events[j]] = 1.
 
