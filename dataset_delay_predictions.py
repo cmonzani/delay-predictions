@@ -554,6 +554,7 @@ class DatasetDelayPredictionStackOverflow(object):
         # dataset for time LSTM (dt as the last dimension of each event)
         self.timestamps_diff = [ts_list[:-1] for ts_list in self.timestamps_diffs_list]
         self.full_values = [[math.log(1 + ts_list[-1]/self.constant_C)] for ts_list in self.timestamps_diffs_list]
+        self.next_event = []
         self.full_seqlen = [len(ts_list) - 1 for ts_list in self.timestamps_diffs_list]
         self.full_features_dt = []
         self.full_features_log = []
@@ -584,6 +585,12 @@ class DatasetDelayPredictionStackOverflow(object):
 
                 aux_.append(list_of_timestamps_diff[j])
                 seq.append(aux_)
+
+            j = seqlen + 1
+            aux_ = aux.copy()
+            aux_[list_of_events[j]] = 1.
+
+            self.next_event.append(aux_)
 
             self.full_features_dt.append(seq)
             self.full_features_log.append(seq_log)
