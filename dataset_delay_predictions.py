@@ -559,6 +559,7 @@ class DatasetDelayPredictionStackOverflow(object):
         self.full_features_dt = []
         self.full_features_log = []
         self.full_features_log_dt = []
+        self.event_nb_timestamp = []
 
         for i in range(len(self.timestamps_diffs_list)):
 
@@ -566,13 +567,17 @@ class DatasetDelayPredictionStackOverflow(object):
             seqlen = self.full_seqlen[i]
             list_of_events = self.events_list[i]
             list_of_timestamps_diff = self.timestamps_diffs_list[i]
-
+            list_of_timestamps = self.timestamps_list[i]
             list_of_log_timestamps_diff = self.log_timestamps_diffs_list[i]
             seq = []
             seq_log = []
             seq_log_dt = []
+            seq_event_nb_timestamp = []
             aux = [0. for _ in range(self.number_of_events)]
             for j in range(seqlen):
+
+                seq_event_nb_timestamp.append([list_of_events[j],list_of_timestamps[j]])
+
                 aux_ = aux.copy()
                 aux_[list_of_events[j]] = 1.
 
@@ -592,6 +597,7 @@ class DatasetDelayPredictionStackOverflow(object):
 
             self.next_event.append(aux_)
 
+            self.event_nb_timestamp.append(seq_event_nb_timestamp)
             self.full_features_dt.append(seq)
             self.full_features_log.append(seq_log)
             self.full_features_log_dt.append(seq_log_dt)
