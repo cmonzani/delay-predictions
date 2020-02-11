@@ -75,14 +75,14 @@ class TimeDepMaskingCell(Layer):
             self.recurrent_initializer = recurrent_identity
 
         self.input_embedding = self.add_weight(
-            shape=(input_dim, self.embedding_size),
+            shape=(input_dim - 1, self.embedding_size),
             name='embedding_projector',
             initializer=self.kernel_initializer,
             regularizer=self.kernel_regularizer,
             constraint=self.kernel_constraint
         )
 
-        self.kernel = self.add_weight(shape=(self.embedding_size, self.units),
+        self.kernel = self.add_weight(shape=(self.embedding_size, 4 * self.units),
                                       name='kernel',
                                       initializer=self.kernel_initializer,
                                       regularizer=self.kernel_regularizer,
@@ -118,13 +118,26 @@ class TimeDepMaskingCell(Layer):
                     return K.concatenate([
                         self.bias_initializer((self.units,), *args, **kwargs),
                         initializers.Ones()((self.units,), *args, **kwargs),
-                        self.bias_initializer((self.units * 3,), *args, **kwargs),
+                        self.bias_initializer((self.units * 2,), *args, **kwargs),
                     ])
+
+                def bias_initializer_time(_, *args, **kwargs):
+                    return K.concatenate([
+                        self.bias_initializer((self.embedding_size,), *args, **kwargs),
+                    ])
+
             else:
                 bias_initializer = self.bias_initializer
-            self.bias = self.add_weight(shape=(self.units * 5,),
+            self.bias = self.add_weight(shape=(self.units * 4,),
                                         name='bias',
                                         initializer=bias_initializer,
+                                        regularizer=self.bias_regularizer,
+                                        constraint=self.bias_constraint)
+
+
+            self.time_bias = self.add_weight(shape=(self.embedding_size,),
+                                        name='bias',
+                                        initializer=bias_initializer_time,
                                         regularizer=self.bias_regularizer,
                                         constraint=self.bias_constraint)
         else:
@@ -193,18 +206,21 @@ class TimeDepMaskingCell(Layer):
         c_d = log_dt * self.time_transformation
 
         c_d_W_d = K.dot(c_d, self.mask_matrix)
-        c_d_w_d = tf.add(c_d_W_d, self.bias[self.units * 4:self.units * 5])
-        m_d = self.time_mask_activation(c_d)
+        c_d_w_d = K.bias_add(c_d_W_d, self.time_bias)
+        m_d = self.time_mask_activation(c_d_w_d)
 
         x_t = tf.multiply(m_d, x_t)
 
 
         if 0. < self.dropout < 1.:
             x_t *= dp_mask[0]
-        z = K.dot(x_t, self.kernel[:-1, :self.units * 4])
+
+        z = K.dot(x_t, self.kernel)
+
         if 0. < self.recurrent_dropout < 1.:
             h_tm1 *= rec_dp_mask[0]
-        z += K.dot(h_tm1, self.recurrent_kernel[:, :self.units * 4])
+
+        z += K.dot(h_tm1, self.recurrent_kernel)
         if self.use_bias:
             z = K.bias_add(z, self.bias[:self.units * 4])
 
