@@ -677,9 +677,9 @@ class T2TimeLSTMCell(Layer):
         self.recurrent_kernel_o = self.recurrent_kernel[:, self.units * 3: self.units * 4]
 
         self.timegate_kernel_xt1 = self.timegate_kernel[:-1, :self.units]
-        self.timegate_kernel_xt2 = self.kernel[:-1, self.units:]
+        self.timegate_kernel_xt2 = self.timegate_kernel[:-1, self.units:]
         self.timegate_kernel_tt1 = self.timegate_kernel[-1, :self.units]
-        self._timegate_kernel_tt2 = self.kernel[-1, self.units:]
+        self._timegate_kernel_tt2 = self.timegate_kernel[-1, self.units:]
 
         if self.use_bias:
             self.bias_i = self.bias[:self.units]
