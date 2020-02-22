@@ -1,8 +1,6 @@
 import tensorflow as tf
-from tensorflow.keras import Sequential
 from tensorflow.keras.layers import Dense, Dropout, Masking, RNN
 from tensorflow.keras.layers import Layer
-import numpy as np
 from tensorflow.keras import initializers, regularizers, constraints, activations
 
 import numpy as np
@@ -715,7 +713,7 @@ class TimeDepJointEmbeddingCell(Layer):
                   'dropout': self.dropout,
                   'recurrent_dropout': self.recurrent_dropout,
                   'implementation': self.implementation}
-        base_config = super(TimeDepMaskingCell, self).get_config()
+        base_config = super(TimeDepJointEmbeddingCell, self).get_config()
         return dict(list(base_config.items()) + list(config.items()))
 
 
