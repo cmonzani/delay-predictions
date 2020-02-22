@@ -1026,7 +1026,7 @@ class T2TimeLSTM(RNN):
                   'dropout': self.dropout,
                   'recurrent_dropout': self.recurrent_dropout,
                   'implementation': self.implementation}
-        base_config = super(T1TimeLSTM, self).get_config()
+        base_config = super(T2TimeLSTM, self).get_config()
         del base_config['cell']
         return dict(list(base_config.items()) + list(config.items()))
 
