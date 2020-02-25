@@ -4,7 +4,7 @@ from tensorflow.keras import initializers, regularizers, constraints, activation
 from tensorflow.keras.layers import Layer
 
 
-class time_joint_embedding(Layer):
+class TimeJointEmbedding(Layer):
 
     def __init__(self,
                  embedding_size=10,
