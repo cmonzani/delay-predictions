@@ -14,7 +14,7 @@ class TimeJointEmbedding(Layer):
                  time_regularizer=None,
                  time_constraint=None,
                  ):
-        super(time_joint_embedding, self).__init__()
+        super(TimeJointEmbedding, self).__init__()
 
         self.time_embedding_size = time_embedding_size
         self.embedding_size = embedding_size
@@ -84,7 +84,7 @@ class TimeMaskEmbedding(Layer):
                  time_regularizer=None,
                  time_constraint=None,
                  ):
-        super(time_mask_embedding, self).__init__()
+        super(TimeMaskEmbedding, self).__init__()
 
         self.time_embedding_size = time_embedding_size
         self.embedding_size = embedding_size
